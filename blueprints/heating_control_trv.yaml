@@ -120,15 +120,29 @@ action:
       current_day: "{{ now().strftime('%a') | lower }}"
       now_time: "{{ now().strftime('%H:%M') }}"
 
-      # Determine which schedule is active
+      # Determine which schedule is active (robust to midnight-crossing and "6:30" vs "06:30")
       active_mode: >
         {% set mode = 'comfort' %}
         {% for item in schedule_list %}
           {% set days = item.days if item.days is defined else [] %}
-          {% if (current_day in days)
-             and (item.start <= now_time < item.end)
-             and item.mode in ['comfort','eco'] %}
-            {% set mode = item.mode %}
+          {% if current_day in days %}
+            {# normalize start/end to HH:MM with leading zero if needed #}
+            {% set s_raw = item.start if item.start is defined else '' %}
+            {% set e_raw = item.end if item.end is defined else '' %}
+            {% if s_raw is string and s_raw|length == 4 %}{% set s = '0' + s_raw %}{% else %}{% set s = s_raw %}{% endif %}
+            {% if e_raw is string and e_raw|length == 4 %}{% set e = '0' + e_raw %}{% else %}{% set e = e_raw %}{% endif %}
+            {% if s and e %}
+              {% if s <= e %}
+                {% if s <= now_time < e and item.mode in ['comfort','eco'] %}
+                  {% set mode = item.mode %}
+                {% endif %}
+              {% else %}
+                {# crosses midnight: active if now >= s OR now < e #}
+                {% if (now_time >= s or now_time < e) and item.mode in ['comfort','eco'] %}
+                  {% set mode = item.mode %}
+                {% endif %}
+              {% endif %}
+            {% endif %}
           {% endif %}
         {% endfor %}
         {{ mode }}

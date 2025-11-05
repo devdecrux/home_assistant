@@ -1,17 +1,21 @@
 blueprint:
-  name: Aqara TRV – External Sensor (Comfort Mode, Auto-Fallback)
+  name: Aqara TRV – External Sensor (Comfort & Eco with Optional Schedules)
   description: >
-    Controls an Aqara TRV using an external temperature sensor for comfort heating.
+    Controls an Aqara TRV using an external temperature sensor with optional
+    Comfort and Eco schedules. Schedules are fully user-configurable, optional,
+    and have no default values. If schedule is inactive or empty, it is ignored.
 
     Features:
-    - Uses an external temperature sensor for accurate room temperature control.
-    - Falls back to TRV internal sensor if external becomes unavailable.
-    - Turns off heating slightly before reaching comfort temperature (radiator offset).
-    - Always updates TRV temperature, even when heating turns off.
-    - Comfort temperature entered manually (numeric input field).
-    - Automation runs in "restart" mode to always act on the latest readings.
+    - External sensor control with tolerance
+    - Internal fallback when sensor unavailable
+    - Radiator offset compensation
+    - TRV temperature always updated, even when heating off
+    - Restart mode for instant reaction
+    - Decimal temperatures supported (e.g., 23.3 °C)
+    - Comfort/Eco scheduling per day of the week
 
   domain: automation
+
   input:
     trv_entity:
       name: Aqara TRV
@@ -43,13 +47,211 @@ blueprint:
         text:
           type: number
 
+    eco_temperature:
+      name: Eco temperature
+      description: Enter a decimal temperature between 10 and 30 °C
+      selector:
+        text:
+          type: number
+
+    # --- COMFORT SCHEDULES ---
+    comfort_schedule_enabled:
+      name: Enable Comfort schedule
+      selector:
+        boolean: { }
+
+    comfort_schedule_mon_start:
+      name: Monday comfort start
+      default:
+      selector:
+        time: { }
+    comfort_schedule_mon_end:
+      name: Monday comfort end
+      default:
+      selector:
+        time: { }
+
+    comfort_schedule_tue_start:
+      name: Tuesday comfort start
+      default:
+      selector:
+        time: { }
+    comfort_schedule_tue_end:
+      name: Tuesday comfort end
+      default:
+      selector:
+        time: { }
+
+    comfort_schedule_wed_start:
+      name: Wednesday comfort start
+      default:
+      selector:
+        time: { }
+    comfort_schedule_wed_end:
+      name: Wednesday comfort end
+      default:
+      selector:
+        time: { }
+
+    comfort_schedule_thu_start:
+      name: Thursday comfort start
+      default:
+      selector:
+        time: { }
+    comfort_schedule_thu_end:
+      name: Thursday comfort end
+      default:
+      selector:
+        time: { }
+
+    comfort_schedule_fri_start:
+      name: Friday comfort start
+      default:
+      selector:
+        time: { }
+    comfort_schedule_fri_end:
+      name: Friday comfort end
+      default:
+      selector:
+        time: { }
+
+    comfort_schedule_sat_start:
+      name: Saturday comfort start
+      default:
+      selector:
+        time: { }
+    comfort_schedule_sat_end:
+      name: Saturday comfort end
+      default:
+      selector:
+        time: { }
+
+    comfort_schedule_sun_start:
+      name: Sunday comfort start
+      default:
+      selector:
+        time: { }
+    comfort_schedule_sun_end:
+      name: Sunday comfort end
+      default:
+      selector:
+        time: { }
+
+    # --- ECO SCHEDULES ---
+    eco_schedule_enabled:
+      name: Enable Eco schedule
+      selector:
+        boolean: { }
+
+    eco_schedule_mon_start:
+      name: Monday eco start
+      default:
+      selector:
+        time: { }
+    eco_schedule_mon_end:
+      name: Monday eco end
+      default:
+      selector:
+        time: { }
+
+    eco_schedule_tue_start:
+      name: Tuesday eco start
+      default:
+      selector:
+        time: { }
+    eco_schedule_tue_end:
+      name: Tuesday eco end
+      default:
+      selector:
+        time: { }
+
+    eco_schedule_wed_start:
+      name: Wednesday eco start
+      default:
+      selector:
+        time: { }
+    eco_schedule_wed_end:
+      name: Wednesday eco end
+      default:
+      selector:
+        time: { }
+
+    eco_schedule_thu_start:
+      name: Thursday eco start
+      default:
+      selector:
+        time: { }
+    eco_schedule_thu_end:
+      name: Thursday eco end
+      default:
+      selector:
+        time: { }
+
+    eco_schedule_fri_start:
+      name: Friday eco start
+      default:
+      selector:
+        time: { }
+    eco_schedule_fri_end:
+      name: Friday eco end
+      default:
+      selector:
+        time: { }
+
+    eco_schedule_sat_start:
+      name: Saturday eco start
+      default:
+      selector:
+        time: { }
+    eco_schedule_sat_end:
+      name: Saturday eco end
+      default:
+      selector:
+        time: { }
+
+    eco_schedule_sun_start:
+      name: Sunday eco start
+      default:
+      selector:
+        time: { }
+    eco_schedule_sun_end:
+      name: Sunday eco end
+      default:
+      selector:
+        time: { }
+
+# ---------------- VARIABLES -----------------
+
 variables:
   trv_entity: !input trv_entity
   external_temp_sensor: !input external_temp_sensor
   last_temp_helper: !input last_temp_helper
   comfort_temperature: !input comfort_temperature
+  eco_temperature: !input eco_temperature
+
   tolerance: 0.4
   radiator_offset: 0.3
+
+  comfort_schedule_enabled: !input comfort_schedule_enabled
+  eco_schedule_enabled: !input eco_schedule_enabled
+
+  comfort_schedules:
+    mon: { start: !input comfort_schedule_mon_start, end: !input comfort_schedule_mon_end }
+    tue: { start: !input comfort_schedule_tue_start, end: !input comfort_schedule_tue_end }
+    wed: { start: !input comfort_schedule_wed_start, end: !input comfort_schedule_wed_end }
+    thu: { start: !input comfort_schedule_thu_start, end: !input comfort_schedule_thu_end }
+    fri: { start: !input comfort_schedule_fri_start, end: !input comfort_schedule_fri_end }
+    sat: { start: !input comfort_schedule_sat_start, end: !input comfort_schedule_sat_end }
+    sun: { start: !input comfort_schedule_sun_start, end: !input comfort_schedule_sun_end }
+
+  eco_schedules:
+    mon: { start: !input eco_schedule_mon_start, end: !input eco_schedule_mon_end }
+    tue: { start: !input eco_schedule_tue_start, end: !input eco_schedule_tue_end }
+    wed: { start: !input eco_schedule_wed_start, end: !input eco_schedule_wed_end }
+    thu: { start: !input eco_schedule_thu_start, end: !input eco_schedule_thu_end }
+    fri: { start: !input eco_schedule_fri_start, end: !input eco_schedule_fri_end }
+    sat: { start: !input eco_schedule_sat_start, end: !input eco_schedule_sat_end }
+    sun: { start: !input eco_schedule_sun_start, end: !input eco_schedule_sun_end }
 
 trigger:
   - platform: state
@@ -60,6 +262,8 @@ trigger:
       - "unavailable"
       - "unknown"
       - "undefined"
+  - platform: time_pattern
+    minutes: "/5"
   - platform: homeassistant
     event: start
   - platform: event
@@ -67,96 +271,94 @@ trigger:
 
 condition: [ ]
 
+# ---------------- ACTIONS -----------------
+
 action:
   - variables:
       sensor_state_raw: "{{ states(external_temp_sensor) }}"
-      external_temp_value: >
-        {% if sensor_state_raw in ['unavailable','unknown','undefined',None,'none','None'] %}
-          none
-        {% else %}
-          {{ states(external_temp_sensor) | float }}
-        {% endif %}
-      last_external_temp_value: "{{ states(last_temp_helper) | float(0) }}"
+      last_external: "{{ states(last_temp_helper) | float(0) }}"
       trv_internal_temp: "{{ state_attr(trv_entity, 'current_temperature') | float(0) }}"
       comfort_temp_value: "{{ comfort_temperature | float }}"
+      eco_temp_value: "{{ eco_temperature | float }}"
 
-  # Ensure comfort temperature is within valid range
+      day: "{{ now().strftime('%a') | lower }}"
+      now_time: "{{ now().strftime('%H:%M') }}"
+
+      comfort_today: "{{ comfort_schedules[day] }}"
+      eco_today: "{{ eco_schedules[day] }}"
+
+      comfort_in_range: >
+        {{ comfort_schedule_enabled and comfort_today.start and comfort_today.end
+           and comfort_today.start <= now_time < comfort_today.end }}
+
+      eco_in_range: >
+        {{ eco_schedule_enabled and eco_today.start and eco_today.end
+           and eco_today.start <= now_time < eco_today.end }}
+
+      active_temp: >
+        {% if comfort_in_range %}
+          {{ comfort_temp_value }}
+        {% elif eco_in_range %}
+          {{ eco_temp_value }}
+        {% else %}
+          {{ comfort_temp_value }}
+        {% endif %}
+
   - condition: template
-    value_template: >
-      {{ 10 <= comfort_temp_value <= 30 }}
+    value_template: "{{ 10 <= active_temp <= 30 }}"
 
-  # Fallback: external sensor unavailable → use TRV internal reading
   - choose:
       - conditions:
           - condition: template
-            value_template: >
-              {{ sensor_state_raw in ['unavailable','unknown','undefined',None,'none','None'] }}
+            value_template: "{{ sensor_state_raw in ['unavailable','unknown','undefined'] }}"
         sequence:
           - service: climate.set_temperature
-            target:
-              entity_id: "{{ trv_entity }}"
-            data:
-              temperature: "{{ comfort_temp_value }}"
+            target: { entity_id: "{{ trv_entity }}" }
+            data: { temperature: "{{ active_temp }}" }
+
           - service: climate.set_hvac_mode
-            target:
-              entity_id: "{{ trv_entity }}"
-            data:
-              hvac_mode: "heat"
+            target: { entity_id: "{{ trv_entity }}" }
+            data: { hvac_mode: "heat" }
+
           - service: input_number.set_value
-            target:
-              entity_id: "{{ last_temp_helper }}"
-            data:
-              value: "{{ trv_internal_temp }}"
-          - stop: "External sensor unavailable — fallback to internal TRV temperature."
+            target: { entity_id: "{{ last_temp_helper }}" }
+            data: { value: "{{ trv_internal_temp }}" }
+
+          - stop: "External sensor unavailable — fallback to TRV internal temperature."
 
   - variables:
-      external_temp: "{{ external_temp_value | float }}"
+      external_temp: "{{ states(external_temp_sensor) | float }}"
 
-  # Ignore small changes (less than tolerance)
   - condition: template
-    value_template: >
-      {{ (external_temp - last_external_temp_value) | abs >= tolerance }}
+    value_template: "{{ (external_temp - last_external) | abs >= tolerance }}"
 
-  # Update stored last temperature
   - service: input_number.set_value
-    target:
-      entity_id: "{{ last_temp_helper }}"
-    data:
-      value: "{{ external_temp }}"
+    target: { entity_id: "{{ last_temp_helper }}" }
+    data: { value: "{{ external_temp }}" }
 
-  # Main heating control
   - choose:
-      # Heating ON: external temp below comfort - offset
       - conditions:
           - condition: template
-            value_template: >
-              {{ external_temp < (comfort_temp_value - radiator_offset) }}
+            value_template: "{{ external_temp < (active_temp - radiator_offset) }}"
         sequence:
           - service: climate.set_hvac_mode
-            target:
-              entity_id: "{{ trv_entity }}"
-            data:
-              hvac_mode: "heat"
+            target: { entity_id: "{{ trv_entity }}" }
+            data: { hvac_mode: "heat" }
+
           - service: climate.set_temperature
-            target:
-              entity_id: "{{ trv_entity }}"
-            data:
-              temperature: "{{ comfort_temp_value }}"
-      # Heating OFF: temperature reached or exceeded
+            target: { entity_id: "{{ trv_entity }}" }
+            data: { temperature: "{{ active_temp }}" }
+
       - conditions:
           - condition: template
-            value_template: >
-              {{ external_temp >= (comfort_temp_value - radiator_offset) }}
+            value_template: "{{ external_temp >= (active_temp - radiator_offset) }}"
         sequence:
           - service: climate.set_temperature
-            target:
-              entity_id: "{{ trv_entity }}"
-            data:
-              temperature: "{{ external_temp }}"
+            target: { entity_id: "{{ trv_entity }}" }
+            data: { temperature: "{{ external_temp }}" }
+
           - service: climate.set_hvac_mode
-            target:
-              entity_id: "{{ trv_entity }}"
-            data:
-              hvac_mode: "off"
+            target: { entity_id: "{{ trv_entity }}" }
+            data: { hvac_mode: "off" }
 
 mode: restart

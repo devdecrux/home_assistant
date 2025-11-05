@@ -1,32 +1,29 @@
 blueprint:
-  name: Aqara TRV – External Sensor (Comfort & Eco with Optional Schedules)
+  name: Aqara TRV – External Sensor (Compact Comfort & Eco Schedule)
   description: >
-    Controls an Aqara TRV using an external temperature sensor with optional
-    Comfort and Eco schedules. Schedules are fully user-configurable, optional,
-    and have no default values. If schedule is inactive or empty, it is ignored.
+    Controls an Aqara TRV using an external temperature sensor with comfort and eco modes,
+    based on a compact schedule list similar to Advanced Heating Control.
 
-    Features:
-    - External sensor control with tolerance
-    - Internal fallback when sensor unavailable
-    - Radiator offset compensation
-    - TRV temperature always updated, even when heating off
-    - Restart mode for instant reaction
-    - Decimal temperatures supported (e.g., 23.3 °C)
-    - Comfort/Eco scheduling per day of the week
+    🧩 Features:
+    - External sensor temperature control
+    - Internal TRV fallback when sensor unavailable
+    - Radiator heat compensation (offset)
+    - Fractional temperatures supported (e.g., 23.3 °C)
+    - Restart mode for fast response
+    - Compact schedule UI (time, days, mode)
+    - 5-minute recheck pattern
 
   domain: automation
 
   input:
     trv_entity:
       name: Aqara TRV
-      description: Select your TRV climate entity.
       selector:
         entity:
           domain: climate
 
     external_temp_sensor:
       name: External temperature sensor
-      description: Select your external room temperature sensor.
       selector:
         entity:
           domain: sensor
@@ -34,15 +31,14 @@ blueprint:
 
     last_temp_helper:
       name: Helper for last external temperature
-      description: Select an input_number helper to store the last valid external temperature reading.
       selector:
         entity:
           domain: input_number
 
     comfort_temperature:
       name: Comfort temperature
-      description: Enter your desired comfort temperature between 10 °C and 30 °C.
-      default: "22"
+      description: Enter a decimal temperature between 10 and 30 °C
+      default: "22.0"
       selector:
         text:
           type: number
@@ -50,175 +46,19 @@ blueprint:
     eco_temperature:
       name: Eco temperature
       description: Enter a decimal temperature between 10 and 30 °C
+      default: "20.0"
       selector:
         text:
           type: number
 
-    # --- COMFORT SCHEDULES ---
-    comfort_schedule_enabled:
-      name: Enable Comfort schedule
+    schedule_list:
+      name: Heating schedule
+      description: >
+        Define schedule entries for comfort or eco modes.
+        Each entry includes the days it applies to, start and end times, and the mode (comfort/eco).
+      default: [ ]
       selector:
-        boolean: { }
-
-    comfort_schedule_mon_start:
-      name: Monday comfort start
-      default:
-      selector:
-        time: { }
-    comfort_schedule_mon_end:
-      name: Monday comfort end
-      default:
-      selector:
-        time: { }
-
-    comfort_schedule_tue_start:
-      name: Tuesday comfort start
-      default:
-      selector:
-        time: { }
-    comfort_schedule_tue_end:
-      name: Tuesday comfort end
-      default:
-      selector:
-        time: { }
-
-    comfort_schedule_wed_start:
-      name: Wednesday comfort start
-      default:
-      selector:
-        time: { }
-    comfort_schedule_wed_end:
-      name: Wednesday comfort end
-      default:
-      selector:
-        time: { }
-
-    comfort_schedule_thu_start:
-      name: Thursday comfort start
-      default:
-      selector:
-        time: { }
-    comfort_schedule_thu_end:
-      name: Thursday comfort end
-      default:
-      selector:
-        time: { }
-
-    comfort_schedule_fri_start:
-      name: Friday comfort start
-      default:
-      selector:
-        time: { }
-    comfort_schedule_fri_end:
-      name: Friday comfort end
-      default:
-      selector:
-        time: { }
-
-    comfort_schedule_sat_start:
-      name: Saturday comfort start
-      default:
-      selector:
-        time: { }
-    comfort_schedule_sat_end:
-      name: Saturday comfort end
-      default:
-      selector:
-        time: { }
-
-    comfort_schedule_sun_start:
-      name: Sunday comfort start
-      default:
-      selector:
-        time: { }
-    comfort_schedule_sun_end:
-      name: Sunday comfort end
-      default:
-      selector:
-        time: { }
-
-    # --- ECO SCHEDULES ---
-    eco_schedule_enabled:
-      name: Enable Eco schedule
-      selector:
-        boolean: { }
-
-    eco_schedule_mon_start:
-      name: Monday eco start
-      default:
-      selector:
-        time: { }
-    eco_schedule_mon_end:
-      name: Monday eco end
-      default:
-      selector:
-        time: { }
-
-    eco_schedule_tue_start:
-      name: Tuesday eco start
-      default:
-      selector:
-        time: { }
-    eco_schedule_tue_end:
-      name: Tuesday eco end
-      default:
-      selector:
-        time: { }
-
-    eco_schedule_wed_start:
-      name: Wednesday eco start
-      default:
-      selector:
-        time: { }
-    eco_schedule_wed_end:
-      name: Wednesday eco end
-      default:
-      selector:
-        time: { }
-
-    eco_schedule_thu_start:
-      name: Thursday eco start
-      default:
-      selector:
-        time: { }
-    eco_schedule_thu_end:
-      name: Thursday eco end
-      default:
-      selector:
-        time: { }
-
-    eco_schedule_fri_start:
-      name: Friday eco start
-      default:
-      selector:
-        time: { }
-    eco_schedule_fri_end:
-      name: Friday eco end
-      default:
-      selector:
-        time: { }
-
-    eco_schedule_sat_start:
-      name: Saturday eco start
-      default:
-      selector:
-        time: { }
-    eco_schedule_sat_end:
-      name: Saturday eco end
-      default:
-      selector:
-        time: { }
-
-    eco_schedule_sun_start:
-      name: Sunday eco start
-      default:
-      selector:
-        time: { }
-    eco_schedule_sun_end:
-      name: Sunday eco end
-      default:
-      selector:
-        time: { }
+        object: { }
 
 # ---------------- VARIABLES -----------------
 
@@ -228,30 +68,10 @@ variables:
   last_temp_helper: !input last_temp_helper
   comfort_temperature: !input comfort_temperature
   eco_temperature: !input eco_temperature
+  schedule_list: !input schedule_list
 
   tolerance: 0.4
   radiator_offset: 0.3
-
-  comfort_schedule_enabled: !input comfort_schedule_enabled
-  eco_schedule_enabled: !input eco_schedule_enabled
-
-  comfort_schedules:
-    mon: { start: !input comfort_schedule_mon_start, end: !input comfort_schedule_mon_end }
-    tue: { start: !input comfort_schedule_tue_start, end: !input comfort_schedule_tue_end }
-    wed: { start: !input comfort_schedule_wed_start, end: !input comfort_schedule_wed_end }
-    thu: { start: !input comfort_schedule_thu_start, end: !input comfort_schedule_thu_end }
-    fri: { start: !input comfort_schedule_fri_start, end: !input comfort_schedule_fri_end }
-    sat: { start: !input comfort_schedule_sat_start, end: !input comfort_schedule_sat_end }
-    sun: { start: !input comfort_schedule_sun_start, end: !input comfort_schedule_sun_end }
-
-  eco_schedules:
-    mon: { start: !input eco_schedule_mon_start, end: !input eco_schedule_mon_end }
-    tue: { start: !input eco_schedule_tue_start, end: !input eco_schedule_tue_end }
-    wed: { start: !input eco_schedule_wed_start, end: !input eco_schedule_wed_end }
-    thu: { start: !input eco_schedule_thu_start, end: !input eco_schedule_thu_end }
-    fri: { start: !input eco_schedule_fri_start, end: !input eco_schedule_fri_end }
-    sat: { start: !input eco_schedule_sat_start, end: !input eco_schedule_sat_end }
-    sun: { start: !input eco_schedule_sun_start, end: !input eco_schedule_sun_end }
 
 trigger:
   - platform: state
@@ -280,25 +100,24 @@ action:
       trv_internal_temp: "{{ state_attr(trv_entity, 'current_temperature') | float(0) }}"
       comfort_temp_value: "{{ comfort_temperature | float }}"
       eco_temp_value: "{{ eco_temperature | float }}"
-
-      day: "{{ now().strftime('%a') | lower }}"
+      current_day: "{{ now().strftime('%a') | lower }}"
       now_time: "{{ now().strftime('%H:%M') }}"
 
-      comfort_today: "{{ comfort_schedules[day] }}"
-      eco_today: "{{ eco_schedules[day] }}"
-
-      comfort_in_range: >
-        {{ comfort_schedule_enabled and comfort_today.start and comfort_today.end
-           and comfort_today.start <= now_time < comfort_today.end }}
-
-      eco_in_range: >
-        {{ eco_schedule_enabled and eco_today.start and eco_today.end
-           and eco_today.start <= now_time < eco_today.end }}
+      # Determine which schedule is active
+      active_mode: >
+        {% set mode = 'comfort' %}
+        {% for item in schedule_list %}
+          {% set days = item.days if item.days is defined else [] %}
+          {% if (current_day in days)
+             and (item.start <= now_time < item.end)
+             and item.mode in ['comfort','eco'] %}
+            {% set mode = item.mode %}
+          {% endif %}
+        {% endfor %}
+        {{ mode }}
 
       active_temp: >
-        {% if comfort_in_range %}
-          {{ comfort_temp_value }}
-        {% elif eco_in_range %}
+        {% if active_mode == 'eco' %}
           {{ eco_temp_value }}
         {% else %}
           {{ comfort_temp_value }}

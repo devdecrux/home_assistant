@@ -37,7 +37,7 @@ blueprint:
       name: Comfort temperature
       description: Desired comfort temperature between 10 and 30 °C
       default: 22
-      selector:
+      text:
         number:
           min: 10
           max: 30

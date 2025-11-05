@@ -54,9 +54,26 @@ blueprint:
     schedule_list:
       name: Heating schedule
       description: >
-        Define schedule entries for comfort or eco modes.
-        Each entry includes the days it applies to, start and end times, and the mode (comfort/eco).
-      default: [ ]
+        Define your comfort and eco periods here.
+        Each entry includes days, start and end times, and the mode to apply.
+        Example values are provided — edit or add more as needed.
+      default:
+        - days: [ "mon", "tue", "wed", "thu", "fri" ]
+          start: "06:30"
+          end: "08:30"
+          mode: "comfort"
+        - days: [ "mon", "tue", "wed", "thu", "fri" ]
+          start: "08:30"
+          end: "16:00"
+          mode: "eco"
+        - days: [ "mon", "tue", "wed", "thu", "fri" ]
+          start: "16:00"
+          end: "23:00"
+          mode: "comfort"
+        - days: [ "sat", "sun" ]
+          start: "07:00"
+          end: "23:00"
+          mode: "comfort"
       selector:
         object: { }
 

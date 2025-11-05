@@ -1,0 +1,137 @@
+spec_version: 2
+blueprint:
+  name: Aqara TRV – External Sensor (Auto-Fallback + Offset + Tolerance)
+  description: >
+    Controls an Aqara TRV using an external temperature sensor for stable room heating.
+    Includes:
+      • Instant fallback to internal TRV sensor if external one is unavailable
+      • Radiator heat compensation (turns off 0.3 °C early)
+      • 0.4 °C tolerance to reduce toggling
+      • No external Python script needed
+
+  domain: automation
+  input:
+    trv_entity:
+      name: Aqara TRV
+      description: Select your TRV climate entity
+      selector:
+        entity:
+          domain: climate
+
+    external_temp_sensor:
+      name: External temperature sensor
+      description: Select the Aqara temperature sensor for this TRV
+      selector:
+        entity:
+          domain: sensor
+          device_class: temperature
+
+    last_temp_helper:
+      name: Helper for last external temperature
+      description: Select or create an input_number helper to store last external temperature
+      selector:
+        entity:
+          domain: input_number
+
+    target_temp:
+      name: Target room temperature
+      description: Desired room temperature
+      default: 22
+      selector:
+        number:
+          min: 5
+          max: 30
+          step: 0.5
+          unit_of_measurement: "°C"
+
+variables:
+  trv_entity: !input trv_entity
+  external_temp_sensor: !input external_temp_sensor
+  last_temp_helper: !input last_temp_helper
+  target_temp: !input target_temp
+  tolerance: 0.4
+  radiator_offset: 0.3
+
+trigger:
+  - platform: state
+    entity_id: !input external_temp_sensor
+  - platform: state
+    entity_id: !input external_temp_sensor
+    to:
+      - "unavailable"
+      - "unknown"
+      - "undefined"
+  - platform: homeassistant
+    event: start
+  - platform: event
+    event_type: automation_reloaded
+
+condition: [ ]
+
+action:
+  - variables:
+      external_temp: "{{ states(external_temp_sensor) | float(0) }}"
+      trv_temp: "{{ state_attr(trv_entity, 'current_temperature') | float(0) }}"
+      last_external_temp: "{{ states(last_temp_helper) | float(0) }}"
+      sensor_state: "{{ states(external_temp_sensor) }}"
+
+  # Instant fallback to internal TRV temperature
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: >
+              {{ sensor_state in ['unavailable', 'unknown', 'undefined'] }}
+        sequence:
+          - service: climate.set_temperature
+            target:
+              entity_id: "{{ trv_entity }}"
+            data:
+              temperature: "{{ target_temp }}"
+          - service: climate.set_hvac_mode
+            target:
+              entity_id: "{{ trv_entity }}"
+            data:
+              hvac_mode: "heat"
+          - stop: "External sensor unavailable – switched to internal TRV temperature"
+
+  # Skip if external temperature change < 0.4 °C
+  - condition: template
+    value_template: >
+      {{ (external_temp - last_external_temp) | abs >= tolerance }}
+
+  # Update stored last external temperature
+  - service: input_number.set_value
+    target:
+      entity_id: "{{ last_temp_helper }}"
+    data:
+      value: "{{ external_temp }}"
+
+  # Main heating control logic
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: >
+              {{ external_temp < (target_temp - radiator_offset) }}
+        sequence:
+          - service: climate.set_hvac_mode
+            target:
+              entity_id: "{{ trv_entity }}"
+            data:
+              hvac_mode: "heat"
+          - service: climate.set_temperature
+            target:
+              entity_id: "{{ trv_entity }}"
+            data:
+              temperature: "{{ target_temp }}"
+      - conditions:
+          - condition: template
+            value_template: >
+              {{ external_temp >= (target_temp - radiator_offset) }}
+        sequence:
+          - service: climate.set_hvac_mode
+            target:
+              entity_id: "{{ trv_entity }}"
+            data:
+              hvac_mode: "off"
+
+mode: single

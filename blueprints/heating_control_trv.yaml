@@ -1,5 +1,5 @@
 blueprint:
-  name: Aqara TRV – External Sensor (Compact Comfort & Eco Schedule)
+  name: Aqara TRV – External Sensor (Compact Comfort & Eco Schedule + Status Display)
   description: >
     Controls an Aqara TRV using an external temperature sensor with comfort and eco modes,
     based on a compact schedule list similar to Advanced Heating Control.
@@ -12,6 +12,7 @@ blueprint:
     - Restart mode for fast response
     - Compact schedule UI (time, days, mode)
     - 5-minute recheck pattern
+    - Status notification showing Mode | TRV | Target | Current
 
   domain: automation
 
@@ -166,11 +167,12 @@ action:
   - condition: template
     value_template: "{{ 10 <= active_temp <= 30 }}"
 
-  # 🔹 NEW: force update TRV when mode or setpoint changes
+  # Always ensure TRV matches mode target
   - service: climate.set_temperature
     target: { entity_id: "{{ trv_entity }}" }
     data: { temperature: "{{ active_temp }}" }
 
+  # Handle unavailable external sensor
   - choose:
       - conditions:
           - condition: template
@@ -190,16 +192,20 @@ action:
 
           - stop: "External sensor unavailable — fallback to TRV internal temperature."
 
+  # Use latest external temperature
   - variables:
       external_temp: "{{ states(external_temp_sensor) | float }}"
 
+  # Only continue if temperature changed enough
   - condition: template
     value_template: "{{ (external_temp - last_external) | abs >= tolerance }}"
 
+  # Save last measured temperature
   - service: input_number.set_value
     target: { entity_id: "{{ last_temp_helper }}" }
     data: { value: "{{ external_temp }}" }
 
+  # Heating logic based on offset
   - choose:
       - conditions:
           - condition: template
@@ -224,5 +230,24 @@ action:
           - service: climate.set_hvac_mode
             target: { entity_id: "{{ trv_entity }}" }
             data: { hvac_mode: "off" }
+
+  # 🆕 Status display
+  - variables:
+      trv_hvac_mode: "{{ state_attr(trv_entity, 'hvac_mode') or states(trv_entity) }}"
+      trv_display_mode: >
+        {% if trv_hvac_mode in ['heat'] %}
+          heating
+        {% elif trv_hvac_mode in ['off'] %}
+          off
+        {% else %}
+          idle
+        {% endif %}
+  - service: persistent_notification.create
+    data:
+      title: "TRV Status Update"
+      message: >
+        Mode: {{ active_mode | title }} | TRV: {{ trv_display_mode }}
+        | Target: {{ "%.1f" | format(active_temp) }}°C
+        | Current: {{ "%.1f" | format(external_temp) }}°C
 
 mode: restart

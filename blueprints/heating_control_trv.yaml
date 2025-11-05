@@ -2,25 +2,27 @@ blueprint:
   name: Aqara TRV – External Sensor (Comfort Mode, Auto-Fallback)
   description: >
     Controls an Aqara TRV using an external temperature sensor for comfort heating.
-    - Uses external temperature sensor for control.
+
+    Features:
+    - Uses an external temperature sensor for accurate room temperature control.
     - Falls back to TRV internal sensor if external becomes unavailable.
-    - Turns off heating slightly before reaching comfort temperature (offset).
-    - Sends updated measured temperature to TRV when target is reached.
-    - Comfort temperature entered as a number between 10 °C and 30 °C.
-    - Automation runs in restart mode to always act on latest readings.
+    - Turns off heating slightly before reaching comfort temperature (radiator offset).
+    - Always updates TRV temperature, even when heating turns off.
+    - Comfort temperature entered manually (numeric input field).
+    - Automation runs in "restart" mode to always act on the latest readings.
 
   domain: automation
   input:
     trv_entity:
       name: Aqara TRV
-      description: Select your TRV climate entity
+      description: Select your TRV climate entity.
       selector:
         entity:
           domain: climate
 
     external_temp_sensor:
       name: External temperature sensor
-      description: Select your external room temperature sensor
+      description: Select your external room temperature sensor.
       selector:
         entity:
           domain: sensor
@@ -28,21 +30,18 @@ blueprint:
 
     last_temp_helper:
       name: Helper for last external temperature
-      description: Select an input_number helper to store the last valid external temperature reading
+      description: Select an input_number helper to store the last valid external temperature reading.
       selector:
         entity:
           domain: input_number
 
     comfort_temperature:
       name: Comfort temperature
-      description: Desired comfort temperature between 10 and 30 °C
-      default: 22
-      text:
-        number:
-          min: 10
-          max: 30
-          step: 0.5
-          unit_of_measurement: "°C"
+      description: Enter your desired comfort temperature between 10 °C and 30 °C.
+      default: "22"
+      selector:
+        text:
+          type: number
 
 variables:
   trv_entity: !input trv_entity
@@ -79,6 +78,12 @@ action:
         {% endif %}
       last_external_temp_value: "{{ states(last_temp_helper) | float(0) }}"
       trv_internal_temp: "{{ state_attr(trv_entity, 'current_temperature') | float(0) }}"
+      comfort_temp_value: "{{ comfort_temperature | float }}"
+
+  # Ensure comfort temperature is within valid range
+  - condition: template
+    value_template: >
+      {{ 10 <= comfort_temp_value <= 30 }}
 
   # Fallback: external sensor unavailable → use TRV internal reading
   - choose:
@@ -91,7 +96,7 @@ action:
             target:
               entity_id: "{{ trv_entity }}"
             data:
-              temperature: "{{ comfort_temperature }}"
+              temperature: "{{ comfort_temp_value }}"
           - service: climate.set_hvac_mode
             target:
               entity_id: "{{ trv_entity }}"
@@ -107,7 +112,7 @@ action:
   - variables:
       external_temp: "{{ external_temp_value | float }}"
 
-  # Ignore small changes
+  # Ignore small changes (less than tolerance)
   - condition: template
     value_template: >
       {{ (external_temp - last_external_temp_value) | abs >= tolerance }}
@@ -125,7 +130,7 @@ action:
       - conditions:
           - condition: template
             value_template: >
-              {{ external_temp < (comfort_temperature - radiator_offset) }}
+              {{ external_temp < (comfort_temp_value - radiator_offset) }}
         sequence:
           - service: climate.set_hvac_mode
             target:
@@ -136,12 +141,12 @@ action:
             target:
               entity_id: "{{ trv_entity }}"
             data:
-              temperature: "{{ comfort_temperature }}"
+              temperature: "{{ comfort_temp_value }}"
       # Heating OFF: temperature reached or exceeded
       - conditions:
           - condition: template
             value_template: >
-              {{ external_temp >= (comfort_temperature - radiator_offset) }}
+              {{ external_temp >= (comfort_temp_value - radiator_offset) }}
         sequence:
           - service: climate.set_temperature
             target:

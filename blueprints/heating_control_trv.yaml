@@ -91,6 +91,7 @@ variables:
   radiator_offset: 0.3
 
 trigger:
+  # 🔸 External sensor changes
   - platform: state
     entity_id: !input external_temp_sensor
   - platform: state
@@ -99,12 +100,22 @@ trigger:
       - "unavailable"
       - "unknown"
       - "undefined"
+
+  # 🔸 Time pattern — still checks every 5 minutes
   - platform: time_pattern
     minutes: "/5"
+
+  # 🔸 Restart / reload triggers
   - platform: homeassistant
     event: start
   - platform: event
     event_type: automation_reloaded
+
+  # 🔹 NEW: temperature changes trigger immediate reaction
+  - platform: state
+    entity_id:
+      - !input comfort_temperature
+      - !input eco_temperature
 
 condition: [ ]
 
@@ -120,13 +131,12 @@ action:
       current_day: "{{ now().strftime('%a') | lower }}"
       now_time: "{{ now().strftime('%H:%M') }}"
 
-      # Determine which schedule is active (robust to midnight-crossing and "6:30" vs "06:30")
+      # Determine which schedule is active (handles midnight correctly)
       active_mode: >
         {% set mode = 'comfort' %}
         {% for item in schedule_list %}
           {% set days = item.days if item.days is defined else [] %}
           {% if current_day in days %}
-            {# normalize start/end to HH:MM with leading zero if needed #}
             {% set s_raw = item.start if item.start is defined else '' %}
             {% set e_raw = item.end if item.end is defined else '' %}
             {% if s_raw is string and s_raw|length == 4 %}{% set s = '0' + s_raw %}{% else %}{% set s = s_raw %}{% endif %}
@@ -137,7 +147,6 @@ action:
                   {% set mode = item.mode %}
                 {% endif %}
               {% else %}
-                {# crosses midnight: active if now >= s OR now < e #}
                 {% if (now_time >= s or now_time < e) and item.mode in ['comfort','eco'] %}
                   {% set mode = item.mode %}
                 {% endif %}
@@ -156,6 +165,11 @@ action:
 
   - condition: template
     value_template: "{{ 10 <= active_temp <= 30 }}"
+
+  # 🔹 NEW: force update TRV when mode or setpoint changes
+  - service: climate.set_temperature
+    target: { entity_id: "{{ trv_entity }}" }
+    data: { temperature: "{{ active_temp }}" }
 
   - choose:
       - conditions:

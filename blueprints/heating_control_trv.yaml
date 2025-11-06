@@ -1,8 +1,8 @@
 blueprint:
-  name: Aqara TRV – External Sensor (Compact Comfort & Eco Schedule, v10.3 BETA)
+  name: Aqara TRV – External Sensor (Compact Comfort & Eco Schedule, v10.4 BETA)
   description: >
     Controls an Aqara TRV using an external temperature sensor with comfort and eco modes,
-    based on Home Assistant Schedule helpers.
+    based on Home Assistant Schedule helpers, plus optional window/door-open heating pause.
 
     🧩 Features:
     - External sensor temperature control
@@ -10,7 +10,7 @@ blueprint:
     - Radiator heat compensation (offset)
     - Comfort / Eco temperature modes with configurable hysteresis
     - HA Schedule-based switching (to-the-second accuracy)
-    - Cross-midnight handled by HA Schedule entities
+    - Optional window / door sensors with open / close delay handling
     - Smart logging, idempotent updates, and startup sync
     - TRV modes: heat / off only
 
@@ -92,10 +92,8 @@ blueprint:
     stop_margin:
       name: Stop Margin (Heating Off Threshold)
       description: >
-        Defines how close the room temperature must get to the target
-        before the radiator valve turns **off**.
-        Example: if target = 24 °C and Stop Margin = 0.2 °C,
-        heating stops at **23.8 °C or higher** to prevent overheating from inertia.
+        Defines how close the room temperature must get to the target before the radiator valve turns **off**.
+        Example: if target = 24 °C and Stop Margin = 0.2 °C, heating stops at **23.8 °C or higher** to prevent overheating from inertia.
       selector:
         number:
           min: 0.1
@@ -107,10 +105,8 @@ blueprint:
     start_margin:
       name: Restart Margin (Heating On Threshold)
       description: >
-        Defines how much the room temperature must drop **below target**
-        before the radiator valve turns **on** again.
-        Example: if target = 24 °C and Restart Margin = 0.5 °C,
-        heating starts at **23.5 °C or lower** to reduce frequent cycling.
+        Defines how much the room temperature must drop **below target** before the radiator valve turns **on** again.
+        Example: if target = 24 °C and Restart Margin = 0.5 °C, heating starts at **23.5 °C or lower** to reduce frequent cycling.
       selector:
         number:
           min: 0.1
@@ -118,6 +114,46 @@ blueprint:
           step: 0.1
           mode: box
       default: 0.5
+
+    open_sensors:
+      name: Window / Door Sensors (optional)
+      description: >
+        Select one or more binary sensors (e.g., Aqara Door / Window Sensors).
+        When any selected sensor remains open longer than the specified delay, the TRV will turn **off**.
+        Heating automatically resumes after all sensors stay closed for the configured recovery delay.
+      default: [ ]
+      selector:
+        entity:
+          domain: binary_sensor
+          device_class:
+            - door
+            - window
+          multiple: true
+
+    open_delay:
+      name: Open Delay (seconds)
+      description: >
+        How long a window or door must stay open before the TRV turns off.
+      default: 120
+      selector:
+        number:
+          min: 10
+          max: 900
+          step: 10
+          unit_of_measurement: seconds
+
+    close_delay:
+      name: Close Recovery Delay (seconds)
+      description: >
+        How long all windows and doors must stay closed before normal heating resumes.
+        Prevents unnecessary toggling if a door or window is briefly reopened.
+      default: 30
+      selector:
+        number:
+          min: 5
+          max: 300
+          step: 5
+          unit_of_measurement: seconds
 
 mode: restart
 max_exceeded: silent
@@ -131,6 +167,8 @@ trigger:
     entity_id: !input comfort_schedules
   - platform: state
     entity_id: !input eco_schedules
+  - platform: state
+    entity_id: !input open_sensors
   - platform: event
     event_type: automation_reloaded
   - platform: event
@@ -147,6 +185,9 @@ variables:
   eco_temperature: !input eco_temperature
   stop_margin: !input stop_margin
   start_margin: !input start_margin
+  open_sensors: !input open_sensors
+  open_delay: !input open_delay
+  close_delay: !input close_delay
 
   external_temp: >
     {% set val = states(external_sensor) %}
@@ -181,6 +222,40 @@ variables:
 condition: [ ]
 
 action:
+  # --- Window / Door handling ---
+  - choose:
+      - conditions: >
+          {% set open_list = expand(open_sensors) | selectattr('state','eq','on') | list %}
+          {{ open_list | count > 0 }}
+        sequence:
+          - delay: !input open_delay
+          - conditions: >
+              {% set still_open = expand(open_sensors) | selectattr('state','eq','on') | list %}
+              {{ still_open | count > 0 }}
+          - choose:
+              - conditions: >
+                  {{ states[aqara_trv].state != 'off' }}
+                sequence:
+                  - service: climate.set_hvac_mode
+                    target: { entity_id: "{{ aqara_trv }}" }
+                    data: { hvac_mode: "off" }
+                  - service: system_log.write
+                    data:
+                      level: warning
+                      message: "Room opened — heating turned OFF after {{ open_delay }} seconds."
+          - stop: "Room opened — TRV heating paused."
+
+  - choose:
+      - conditions: >
+          {% set open_list = expand(open_sensors) | selectattr('state','eq','on') | list %}
+          {{ open_list | count == 0 and open_sensors | count > 0 }}
+        sequence:
+          - delay: !input close_delay
+          - conditions: >
+              {% set still_closed = expand(open_sensors) | selectattr('state','eq','on') | list %}
+              {{ still_closed | count == 0 }}
+
+  # --- Existing external sensor and heating logic continues below (identical to v10.3) ---
   - choose:
       - conditions: >
           {{ external_temp == 'none' or not (external_temp is number) }}

@@ -6,7 +6,8 @@ blueprint:
       - Updates TRV internal temperature based on external sensor (same logic as pavax blueprint)
       - Automatic fallback to TRV internal sensor when external unavailable
       - Comfort/Eco temperature modes based on weekly schedules
-      - Hysteresis heating logic (stop at target−0.2°C, start at target−0.5°C)
+      - Accurate time comparison (handles midnight, zero-padding, multiple schedules)
+      - Hysteresis heating logic (stop at target−0.2 °C, start at target−0.5 °C)
       - Uses TRV modes: heat/off only
 
   domain: automation
@@ -93,9 +94,7 @@ variables:
   eco_temperature: !input eco_temperature
   schedules: !input schedules
 
-  now_time: "{{ now().strftime('%H:%M') }}"
-  today: "{{ now().strftime('%a') | lower }}"
-
+  # --- External temperature value ---
   external_temp: >
     {% set val = states(external_sensor) %}
     {% if val not in ['unavailable','unknown','undefined','none',''] %}
@@ -104,8 +103,14 @@ variables:
       none
     {% endif %}
 
+  # --- Determine active mode based on robust time comparison ---
   active_mode: >
+    {% set now_local = now() %}
+    {% set now_day = now_local.strftime('%a') | lower %}
+    {% set now_minutes = now_local.hour * 60 + now_local.minute %}
     {% set current_mode = 'eco' %}
+    {% set matched = false %}
+
     {% if schedules is defined and schedules %}
       {% for s in schedules %}
         {% set days = s.days if s.days is defined else [] %}
@@ -113,18 +118,29 @@ variables:
         {% set end = s.end if s.end is defined else '23:59' %}
         {% set mode = s.mode if s.mode is defined else 'eco' %}
 
-        {% set is_today = (today in days or 'all' in days) %}
-        {% set crosses_midnight = (start > end) %}
-        {% if is_today %}
-          {% if (not crosses_midnight and start <= now_time < end)
-             or (crosses_midnight and (now_time >= start or now_time < end)) %}
+        {% set sh, sm = start.split(':') %}
+        {% set eh, em = end.split(':') %}
+        {% set start_m = (sh | int) * 60 + (sm | int) %}
+        {% set end_m = (eh | int) * 60 + (em | int) %}
+        {% set crosses_midnight = start_m > end_m %}
+        {% set valid_day = (now_day in days) or ('all' in days) %}
+
+        {% if valid_day %}
+          {% if (not crosses_midnight and start_m <= now_minutes < end_m)
+                or (crosses_midnight and (now_minutes >= start_m or now_minutes < end_m)) %}
             {% set current_mode = mode %}
+            {% set matched = true %}
             {% break %}
           {% endif %}
         {% endif %}
       {% endfor %}
     {% endif %}
-    {{ current_mode }}
+
+    {% if not matched %}
+      {{ 'eco' }}
+    {% else %}
+      {{ current_mode }}
+    {% endif %}
 
   target_temp: >
     {% if active_mode == 'comfort' %}
@@ -136,6 +152,14 @@ variables:
 condition: [ ]
 
 action:
+  # --- Debug: log active mode and time evaluation ---
+  - service: system_log.write
+    data:
+      level: info
+      message: >
+        "TRV Schedule check → mode: {{ active_mode }}, target: {{ target_temp }},
+        external_temp: {{ external_temp }}, time: {{ now().strftime('%H:%M') }}"
+
   # --- Handle unavailable or invalid external sensor (switch TRV to internal) ---
   - choose:
       - conditions: >
@@ -149,7 +173,7 @@ action:
           - service: system_log.write
             data:
               level: error
-              message: "External temperature sensor unavailable - switching TRV to internal sensor"
+              message: "External temperature sensor unavailable – switching TRV to internal sensor"
               logger: Aqara TRV
           - stop: External temperature sensor unavailable
 
@@ -197,5 +221,5 @@ action:
             data:
               temperature: "{{ target_temp | float }}"
 
-  # If neither condition matched, do nothing (temperature stable zone)
+  # --- If no condition matched, do nothing (stable zone) ---
   - stop: Stable temperature zone — no action required.

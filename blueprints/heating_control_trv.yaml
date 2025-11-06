@@ -10,6 +10,9 @@ blueprint:
       - Uses TRV modes: heat/off only
 
   domain: automation
+  mode: restart
+  max_exceeded: silent
+
   input:
     aqara_trv:
       name: Aqara TRV
@@ -62,9 +65,6 @@ blueprint:
       selector:
         object:
 
-mode: single
-max_exceeded: silent
-
 trigger:
   - platform: state
     entity_id: !input external_sensor
@@ -81,7 +81,7 @@ variables:
 
   external_temp: >
     {% set val = states(external_sensor) %}
-    {% if val not in ['unavailable','unknown','none','undefined',''] %}
+    {% if val not in ['unavailable','unknown','undefined','none',''] %}
       {{ val | float }}
     {% else %}
       none
@@ -137,7 +137,29 @@ variables:
 condition: [ ]
 
 action:
-  # --- Update TRV internal temperature using the same method as in the reference blueprint ---
+  # --- Handle unavailable or invalid external sensor (switch TRV to internal) ---
+  - choose:
+      - conditions: >
+          {{ external_temp == 'none' or not (external_temp is number) }}
+        sequence:
+          - service: mqtt.publish
+            data:
+              topic: "zigbee2mqtt/{{ state_attr(aqara_trv, 'friendly_name') }}/set"
+              payload: '{"sensor": "internal"}'
+          - service: system_log.write
+            data:
+              level: error
+              message: "External temperature sensor unavailable - switching TRV to internal sensor"
+              logger: Aqara TRV
+          - stop: External temperature sensor unavailable
+
+  # --- External sensor available (switch TRV to external and update temperature) ---
+  - service: mqtt.publish
+    data:
+      topic: "zigbee2mqtt/{{ state_attr(aqara_trv, 'friendly_name') }}/set"
+      payload: '{"sensor": "external"}'
+
+  # --- Update TRV internal temperature using calibration offset (same as pavax) ---
   - choose:
       - conditions: "{{ external_temp is number }}"
         sequence:

@@ -3,10 +3,12 @@ blueprint:
   description: >
     Controls an Aqara TRV E1 using an external Aqara temperature sensor.
     Features:
-      - Updates TRV internal temperature based on external sensor (same logic as pavax blueprint)
-      - Automatic fallback to TRV internal sensor when external unavailable
-      - Comfort/Eco temperature modes based on weekly schedules
-      - Accurate time comparison (handles midnight, zero-padding, multiple schedules)
+      - Updates TRV internal reading using number.set_value (same logic as pavax blueprint)
+      - Automatic switch between internal/external sensor modes
+      - Comfort/Eco temperature modes based on robust time-based scheduling
+      - Handles midnight-crossing ranges, multiple schedules, zero-padded or non-padded times
+      - Includes previous-day safety logic for cross-midnight schedules
+      - Uses namespace variable to persist mode selection (fixes fallback to eco)
       - Hysteresis heating logic (stop at target−0.2 °C, start at target−0.5 °C)
       - Uses TRV modes: heat/off only
 
@@ -78,12 +80,12 @@ blueprint:
       selector:
         object:
 
+mode: restart
+max_exceeded: silent
+
 trigger:
   - platform: state
     entity_id: !input external_sensor
-
-mode: restart
-max_exceeded: silent
 
 variables:
   aqara_trv: !input aqara_trv
@@ -103,13 +105,13 @@ variables:
       none
     {% endif %}
 
-  # --- Determine active mode with full midnight, zero-padding, and previous-day safety ---
+  # --- Determine active mode with namespace (fully persistent variable) ---
   active_mode: >
     {% set now_local = now() %}
     {% set now_day = now_local.strftime('%a') | lower %}
-    {% set now_minutes = now_local.hour * 60 + now_local.minute %}
     {% set yesterday_day = (now_local - timedelta(days=1)).strftime('%a') | lower %}
-    {% set matched_mode = 'eco' %}
+    {% set now_minutes = now_local.hour * 60 + now_local.minute %}
+    {% set ns = namespace(mode='eco') %}
 
     {% if schedules is defined and schedules %}
       {% for s in schedules %}
@@ -124,19 +126,18 @@ variables:
         {% set end_m = (eh | int) * 60 + (em | int) %}
         {% set crosses_midnight = start_m > end_m %}
 
-        {# day validation: allow previous-day cross-midnight schedules #}
-        {% set valid_day = (now_day in days) or ('all' in days) 
+        {% set valid_day = (now_day in days) or ('all' in days)
             or (crosses_midnight and (yesterday_day in days) and (now_minutes < end_m)) %}
 
         {% if valid_day %}
           {% if (not crosses_midnight and start_m <= now_minutes < end_m)
                 or (crosses_midnight and (now_minutes >= start_m or now_minutes < end_m)) %}
-            {% set matched_mode = mode %}
+            {% set ns.mode = mode %}
           {% endif %}
         {% endif %}
       {% endfor %}
     {% endif %}
-    {{ matched_mode }}
+    {{ ns.mode }}
 
   target_temp: >
     {% if active_mode == 'comfort' %}

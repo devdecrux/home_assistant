@@ -44,7 +44,7 @@ blueprint:
 
     comfort_temperature:
       name: Comfort Temperature
-      description: Desired temperature during comfort periods (15–30°C, decimals allowed).
+      description: Desired temperature during comfort periods (15–30 °C, decimals allowed).
       selector:
         number:
           min: 15
@@ -54,7 +54,7 @@ blueprint:
 
     eco_temperature:
       name: Eco Temperature
-      description: Desired temperature during eco periods (15–30°C, decimals allowed).
+      description: Desired temperature during eco periods (15–30 °C, decimals allowed).
       selector:
         number:
           min: 15
@@ -103,13 +103,13 @@ variables:
       none
     {% endif %}
 
-  # --- Determine active mode based on robust time comparison ---
+  # --- Determine active mode with full midnight, zero-padding, and previous-day safety ---
   active_mode: >
     {% set now_local = now() %}
     {% set now_day = now_local.strftime('%a') | lower %}
     {% set now_minutes = now_local.hour * 60 + now_local.minute %}
-    {% set current_mode = 'eco' %}
-    {% set matched = false %}
+    {% set yesterday_day = (now_local - timedelta(days=1)).strftime('%a') | lower %}
+    {% set matched_mode = 'eco' %}
 
     {% if schedules is defined and schedules %}
       {% for s in schedules %}
@@ -123,24 +123,20 @@ variables:
         {% set start_m = (sh | int) * 60 + (sm | int) %}
         {% set end_m = (eh | int) * 60 + (em | int) %}
         {% set crosses_midnight = start_m > end_m %}
-        {% set valid_day = (now_day in days) or ('all' in days) %}
+
+        {# day validation: allow previous-day cross-midnight schedules #}
+        {% set valid_day = (now_day in days) or ('all' in days) 
+            or (crosses_midnight and (yesterday_day in days) and (now_minutes < end_m)) %}
 
         {% if valid_day %}
           {% if (not crosses_midnight and start_m <= now_minutes < end_m)
                 or (crosses_midnight and (now_minutes >= start_m or now_minutes < end_m)) %}
-            {% set current_mode = mode %}
-            {% set matched = true %}
-            {% break %}
+            {% set matched_mode = mode %}
           {% endif %}
         {% endif %}
       {% endfor %}
     {% endif %}
-
-    {% if not matched %}
-      {{ 'eco' }}
-    {% else %}
-      {{ current_mode }}
-    {% endif %}
+    {{ matched_mode }}
 
   target_temp: >
     {% if active_mode == 'comfort' %}
@@ -152,7 +148,7 @@ variables:
 condition: [ ]
 
 action:
-  # --- Debug: log active mode and time evaluation ---
+  # --- Debug log for traceability ---
   - service: system_log.write
     data:
       level: info

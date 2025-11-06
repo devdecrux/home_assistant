@@ -1,253 +1,193 @@
 blueprint:
-  name: Aqara TRV – External Sensor (Compact Comfort & Eco Schedule + Status Display)
+  name: Aqara TRV – External Sensor (Comfort/Eco with Schedule & Smart Heating)
   description: >
-    Controls an Aqara TRV using an external temperature sensor with comfort and eco modes,
-    based on a compact schedule list similar to Advanced Heating Control.
-
-    🧩 Features:
-    - External sensor temperature control
-    - Internal TRV fallback when sensor unavailable
-    - Radiator heat compensation (offset)
-    - Fractional temperatures supported (e.g., 23.3 °C)
-    - Restart mode for fast response
-    - Compact schedule UI (time, days, mode)
-    - 5-minute recheck pattern
-    - Status notification showing Mode | TRV | Target | Current
+    Controls an Aqara TRV E1 using an external Aqara temperature sensor.
+    Features:
+      - Updates TRV internal temperature based on external sensor (same logic as pavax blueprint)
+      - Fallback to internal TRV temperature if external unavailable
+      - Comfort/Eco temperature modes based on weekly schedules
+      - Hysteresis heating logic (stop at target−0.2°C, start at target−0.5°C)
+      - Uses TRV modes: heat/off only
 
   domain: automation
-
   input:
-    trv_entity:
+    aqara_trv:
       name: Aqara TRV
+      description: The TRV entity to control.
       selector:
         entity:
           domain: climate
 
-    external_temp_sensor:
-      name: External temperature sensor
+    external_sensor:
+      name: External Temperature Sensor
+      description: Aqara temperature & humidity sensor used for external reading.
       selector:
         entity:
           domain: sensor
           device_class: temperature
 
-    last_temp_helper:
-      name: Helper for last external temperature
+    internal_trv_temperature:
+      name: TRV Internal Temperature Sensor
+      description: The internal temperature sensor entity from the TRV (used as fallback).
       selector:
         entity:
-          domain: input_number
+          domain: sensor
+          device_class: temperature
 
     comfort_temperature:
-      name: Comfort temperature
-      description: Enter a decimal temperature between 10 and 30 °C
-      default: "22.0"
+      name: Comfort Temperature
+      description: Desired temperature during comfort periods (15–30°C, decimals allowed).
       selector:
-        text:
-          type: number
+        number:
+          min: 15
+          max: 30
+          step: 0.5
+          mode: box
 
     eco_temperature:
-      name: Eco temperature
-      description: Enter a decimal temperature between 10 and 30 °C
-      default: "20.0"
+      name: Eco Temperature
+      description: Desired temperature during eco periods (15–30°C, decimals allowed).
       selector:
-        text:
-          type: number
+        number:
+          min: 15
+          max: 30
+          step: 0.5
+          mode: box
 
-    schedule_list:
-      name: Heating schedule
+    schedules:
+      name: Weekly Schedule
       description: >
-        Define your comfort and eco periods here.
-        Each entry includes days, start and end times, and the mode to apply.
-        Example values are provided — edit or add more as needed.
-      default:
-        - days: [ "mon", "tue", "wed", "thu", "fri" ]
-          start: "06:30"
-          end: "08:30"
-          mode: "comfort"
-        - days: [ "mon", "tue", "wed", "thu", "fri" ]
-          start: "08:30"
-          end: "16:00"
-          mode: "eco"
-        - days: [ "mon", "tue", "wed", "thu", "fri" ]
-          start: "16:00"
-          end: "23:00"
-          mode: "comfort"
-        - days: [ "sat", "sun" ]
-          start: "07:00"
-          end: "23:00"
-          mode: "comfort"
+        Define time-based mode switches between Comfort and Eco.
+        Example:
+          - days: [mon,tue,wed,thu,fri]
+            start: "07:00"
+            end: "09:00"
+            mode: "comfort"
+          - days: [mon,tue,wed,thu,fri]
+            start: "22:00"
+            end: "07:00"
+            mode: "eco"
       selector:
-        object: { }
+        object:
 
-# ---------------- VARIABLES -----------------
-
-variables:
-  trv_entity: !input trv_entity
-  external_temp_sensor: !input external_temp_sensor
-  last_temp_helper: !input last_temp_helper
-  comfort_temperature: !input comfort_temperature
-  eco_temperature: !input eco_temperature
-  schedule_list: !input schedule_list
-
-  tolerance: 0.4
-  radiator_offset: 0.3
+mode: single
+max_exceeded: silent
 
 trigger:
-  # 🔸 External sensor changes
   - platform: state
-    entity_id: !input external_temp_sensor
-  - platform: state
-    entity_id: !input external_temp_sensor
-    to:
-      - "unavailable"
-      - "unknown"
-      - "undefined"
+    entity_id: !input external_sensor
 
-  # 🔸 Time pattern — still checks every 5 minutes
-  - platform: time_pattern
-    minutes: "/5"
+variables:
+  aqara_trv: !input aqara_trv
+  external_sensor: !input external_sensor
+  internal_trv_temperature: !input internal_trv_temperature
+  comfort_temperature: !input comfort_temperature
+  eco_temperature: !input eco_temperature
+  schedules: !input schedules
 
-  # 🔸 Restart / reload triggers
-  - platform: homeassistant
-    event: start
-  - platform: event
-    event_type: automation_reloaded
+  now_time: "{{ now().strftime('%H:%M') }}"
+  today: "{{ now().strftime('%a') | lower }}"
 
-  # 🔹 NEW: temperature changes trigger immediate reaction
-  - platform: state
-    entity_id:
-      - !input comfort_temperature
-      - !input eco_temperature
+  external_temp: >
+    {% set val = states(external_sensor) %}
+    {% if val not in ['unavailable','unknown','none','undefined',''] %}
+      {{ val | float }}
+    {% else %}
+      none
+    {% endif %}
+
+  internal_temp: >
+    {% set val = states(internal_trv_temperature) %}
+    {% if val not in ['unavailable','unknown','none','undefined',''] %}
+      {{ val | float }}
+    {% else %}
+      none
+    {% endif %}
+
+  # --- Determine active mode based on schedule array ---
+  active_mode: >
+    {% set current_mode = 'eco' %}
+    {% if schedules is defined and schedules %}
+      {% for s in schedules %}
+        {% set days = s.days if s.days is defined else [] %}
+        {% set start = s.start if s.start is defined else '00:00' %}
+        {% set end = s.end if s.end is defined else '23:59' %}
+        {% set mode = s.mode if s.mode is defined else 'eco' %}
+
+        {% set is_today = (today in days or 'all' in days) %}
+        {% set crosses_midnight = (start > end) %}
+        {% if is_today %}
+          {% if (not crosses_midnight and start <= now_time < end)
+             or (crosses_midnight and (now_time >= start or now_time < end)) %}
+            {% set current_mode = mode %}
+            {% break %}
+          {% endif %}
+        {% endif %}
+      {% endfor %}
+    {% endif %}
+    {{ current_mode }}
+
+  target_temp: >
+    {% if active_mode == 'comfort' %}
+      {{ comfort_temperature | float }}
+    {% else %}
+      {{ eco_temperature | float }}
+    {% endif %}
+
+  measured_temp: >
+    {% if external_temp != 'none' and external_temp is number %}
+      {{ external_temp }}
+    {% elif internal_temp is number %}
+      {{ internal_temp }}
+    {% else %}
+      none
+    {% endif %}
 
 condition: [ ]
 
-# ---------------- ACTIONS -----------------
-
 action:
-  - variables:
-      sensor_state_raw: "{{ states(external_temp_sensor) }}"
-      last_external: "{{ states(last_temp_helper) | float(0) }}"
-      trv_internal_temp: "{{ state_attr(trv_entity, 'current_temperature') | float(0) }}"
-      comfort_temp_value: "{{ comfort_temperature | float }}"
-      eco_temp_value: "{{ eco_temperature | float }}"
-      current_day: "{{ now().strftime('%a') | lower }}"
-      now_time: "{{ now().strftime('%H:%M') }}"
-
-      # Determine which schedule is active (handles midnight correctly)
-      active_mode: >
-        {% set mode = 'comfort' %}
-        {% for item in schedule_list %}
-          {% set days = item.days if item.days is defined else [] %}
-          {% if current_day in days %}
-            {% set s_raw = item.start if item.start is defined else '' %}
-            {% set e_raw = item.end if item.end is defined else '' %}
-            {% if s_raw is string and s_raw|length == 4 %}{% set s = '0' + s_raw %}{% else %}{% set s = s_raw %}{% endif %}
-            {% if e_raw is string and e_raw|length == 4 %}{% set e = '0' + e_raw %}{% else %}{% set e = e_raw %}{% endif %}
-            {% if s and e %}
-              {% if s <= e %}
-                {% if s <= now_time < e and item.mode in ['comfort','eco'] %}
-                  {% set mode = item.mode %}
-                {% endif %}
-              {% else %}
-                {% if (now_time >= s or now_time < e) and item.mode in ['comfort','eco'] %}
-                  {% set mode = item.mode %}
-                {% endif %}
-              {% endif %}
-            {% endif %}
-          {% endif %}
-        {% endfor %}
-        {{ mode }}
-
-      active_temp: >
-        {% if active_mode == 'eco' %}
-          {{ eco_temp_value }}
-        {% else %}
-          {{ comfort_temp_value }}
-        {% endif %}
-
-  - condition: template
-    value_template: "{{ 10 <= active_temp <= 30 }}"
-
-  # Always ensure TRV matches mode target
-  - service: climate.set_temperature
-    target: { entity_id: "{{ trv_entity }}" }
-    data: { temperature: "{{ active_temp }}" }
-
-  # Handle unavailable external sensor
+  # --- Update TRV internal temperature same way as in the reference blueprint ---
   - choose:
-      - conditions:
-          - condition: template
-            value_template: "{{ sensor_state_raw in ['unavailable','unknown','undefined'] }}"
+      - conditions: "{{ external_temp is number }}"
         sequence:
-          - service: climate.set_temperature
-            target: { entity_id: "{{ trv_entity }}" }
-            data: { temperature: "{{ active_temp }}" }
+          - service: mqtt.publish
+            data:
+              topic: "zigbee2mqtt/{{ state_attr(aqara_trv, 'friendly_name') }}/set"
+              payload_template: >
+                {
+                  "local_temperature_calibration": {{ (external_temp - state_attr(aqara_trv, 'local_temperature')) | round(1) }}
+                }
 
-          - service: climate.set_hvac_mode
-            target: { entity_id: "{{ trv_entity }}" }
-            data: { hvac_mode: "heat" }
-
-          - service: input_number.set_value
-            target: { entity_id: "{{ last_temp_helper }}" }
-            data: { value: "{{ trv_internal_temp }}" }
-
-          - stop: "External sensor unavailable — fallback to TRV internal temperature."
-
-  # Use latest external temperature
-  - variables:
-      external_temp: "{{ states(external_temp_sensor) | float }}"
-
-  # Only continue if temperature changed enough
-  - condition: template
-    value_template: "{{ (external_temp - last_external) | abs >= tolerance }}"
-
-  # Save last measured temperature
-  - service: input_number.set_value
-    target: { entity_id: "{{ last_temp_helper }}" }
-    data: { value: "{{ external_temp }}" }
-
-  # Heating logic based on offset
+  # --- Determine if we need to heat or turn off based on hysteresis ---
   - choose:
+      # Stop heating if measured >= target - 0.2
       - conditions:
           - condition: template
-            value_template: "{{ external_temp < (active_temp - radiator_offset) }}"
+            value_template: >
+              {{ measured_temp is number and measured_temp >= (target_temp - 0.2) }}
         sequence:
           - service: climate.set_hvac_mode
-            target: { entity_id: "{{ trv_entity }}" }
-            data: { hvac_mode: "heat" }
+            target:
+              entity_id: "{{ aqara_trv }}"
+            data:
+              hvac_mode: "off"
 
-          - service: climate.set_temperature
-            target: { entity_id: "{{ trv_entity }}" }
-            data: { temperature: "{{ active_temp }}" }
-
+      # Start heating if measured <= target - 0.5
       - conditions:
           - condition: template
-            value_template: "{{ external_temp >= (active_temp - radiator_offset) }}"
+            value_template: >
+              {{ measured_temp is number and measured_temp <= (target_temp - 0.5) }}
         sequence:
-          - service: climate.set_temperature
-            target: { entity_id: "{{ trv_entity }}" }
-            data: { temperature: "{{ external_temp }}" }
-
           - service: climate.set_hvac_mode
-            target: { entity_id: "{{ trv_entity }}" }
-            data: { hvac_mode: "off" }
+            target:
+              entity_id: "{{ aqara_trv }}"
+            data:
+              hvac_mode: "heat"
+          - service: climate.set_temperature
+            target:
+              entity_id: "{{ aqara_trv }}"
+            data:
+              temperature: "{{ target_temp | float }}"
 
-  # 🆕 Status display
-  - variables:
-      trv_hvac_mode: "{{ state_attr(trv_entity, 'hvac_mode') or states(trv_entity) }}"
-      trv_display_mode: >
-        {% if trv_hvac_mode in ['heat'] %}
-          heating
-        {% elif trv_hvac_mode in ['off'] %}
-          off
-        {% else %}
-          idle
-        {% endif %}
-  - service: persistent_notification.create
-    data:
-      title: "TRV Status Update"
-      message: >
-        Mode: {{ active_mode | title }} | TRV: {{ trv_display_mode }}
-        | Target: {{ "%.1f" | format(active_temp) }}°C
-        | Current: {{ "%.1f" | format(external_temp) }}°C
-
-mode: restart
+  # If neither condition matched, do nothing (temperature stable zone)
+  - stop: Stable temperature zone — no action required.

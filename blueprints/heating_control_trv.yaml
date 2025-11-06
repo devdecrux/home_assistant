@@ -1,16 +1,18 @@
 blueprint:
-  name: Aqara TRV – External Sensor (Comfort/Eco with Schedule & Smart Heating)
+  name: Aqara TRV – External Sensor (Comfort/Eco with Schedule & Smart Heating v9)
   description: >
     Controls an Aqara TRV E1 using an external Aqara temperature sensor.
-    Features:
-      - Updates TRV internal reading using number.set_value (same logic as pavax blueprint)
-      - Automatic switch between internal/external sensor modes
-      - Comfort/Eco temperature modes based on robust time-based scheduling
-      - Handles midnight-crossing ranges, multiple schedules, zero-padded or non-padded times
-      - Includes previous-day safety logic for cross-midnight schedules
-      - Uses namespace variable to persist mode selection (fixes fallback to eco)
-      - Hysteresis heating logic (stop at target−0.2 °C, start at target−0.5 °C)
-      - Uses TRV modes: heat/off only
+
+    🔧 Features:
+      • Updates TRV internal reading using number.set_value (same logic as pavax blueprint)  
+      • Automatic switch between internal/external sensor modes  
+      • Comfort / Eco temperature modes based on robust scheduling  
+      • Handles midnight-crossing ranges and previous-day safety  
+      • Configurable hysteresis margins for heating control  
+      • Ignores minor sensor noise and unrealistic readings  
+      • Skips redundant commands to reduce Zigbee load  
+      • Smart logging and startup re-synchronization  
+      • Uses TRV modes heat/off only
 
   domain: automation
 
@@ -64,6 +66,38 @@ blueprint:
           step: 0.5
           mode: box
 
+    stop_margin:
+      name: Stop Margin (Heating Off Threshold)
+      description: >
+        Defines how close the room temperature must get to the target
+        before the radiator valve turns **off**.  
+        Example: if the target is 24 °C and Stop Margin = 0.2 °C,
+        heating stops at **23.8 °C or higher**.
+        Helps prevent overheating from radiator inertia.
+      selector:
+        number:
+          min: 0.1
+          max: 1.0
+          step: 0.1
+          mode: box
+      default: 0.1
+
+    start_margin:
+      name: Restart Margin (Heating On Threshold)
+      description: >
+        Defines how much the room temperature must drop **below the target**
+        before the radiator valve turns **on** again.  
+        Example: if the target is 24 °C and Restart Margin = 0.5 °C,
+        heating starts at **23.5 °C or lower**.
+        A higher value reduces frequent on/off switching.
+      selector:
+        number:
+          min: 0.1
+          max: 1.0
+          step: 0.1
+          mode: box
+      default: 0.5
+
     schedules:
       name: Weekly Schedule
       description: >
@@ -86,6 +120,8 @@ max_exceeded: silent
 trigger:
   - platform: state
     entity_id: !input external_sensor
+  - platform: homeassistant
+    event: start
 
 variables:
   aqara_trv: !input aqara_trv
@@ -95,8 +131,9 @@ variables:
   comfort_temperature: !input comfort_temperature
   eco_temperature: !input eco_temperature
   schedules: !input schedules
+  stop_margin: !input stop_margin
+  start_margin: !input start_margin
 
-  # --- External temperature value ---
   external_temp: >
     {% set val = states(external_sensor) %}
     {% if val not in ['unavailable','unknown','undefined','none',''] %}
@@ -105,30 +142,25 @@ variables:
       none
     {% endif %}
 
-  # --- Determine active mode with namespace (fully persistent variable) ---
   active_mode: >
     {% set now_local = now() %}
     {% set now_day = now_local.strftime('%a') | lower %}
     {% set yesterday_day = (now_local - timedelta(days=1)).strftime('%a') | lower %}
     {% set now_minutes = now_local.hour * 60 + now_local.minute %}
     {% set ns = namespace(mode='eco') %}
-
     {% if schedules is defined and schedules %}
       {% for s in schedules %}
         {% set days = s.days if s.days is defined else [] %}
         {% set start = s.start if s.start is defined else '00:00' %}
         {% set end = s.end if s.end is defined else '23:59' %}
         {% set mode = s.mode if s.mode is defined else 'eco' %}
-
         {% set sh, sm = start.split(':') %}
         {% set eh, em = end.split(':') %}
-        {% set start_m = (sh | int) * 60 + (sm | int) %}
-        {% set end_m = (eh | int) * 60 + (em | int) %}
+        {% set start_m = (sh | int)*60 + (sm | int) %}
+        {% set end_m = (eh | int)*60 + (em | int) %}
         {% set crosses_midnight = start_m > end_m %}
-
         {% set valid_day = (now_day in days) or ('all' in days)
             or (crosses_midnight and (yesterday_day in days) and (now_minutes < end_m)) %}
-
         {% if valid_day %}
           {% if (not crosses_midnight and start_m <= now_minutes < end_m)
                 or (crosses_midnight and (now_minutes >= start_m or now_minutes < end_m)) %}
@@ -149,15 +181,44 @@ variables:
 condition: [ ]
 
 action:
-  # --- Debug log for traceability ---
+  # --- Skip if external temp invalid or unchanged (<0.05 °C delta) ---
+  - choose:
+      - conditions: >
+          {{ external_temp == 'none' or not (external_temp is number)
+             or abs((states[aqara_trv_number_entity].state | float(999)) - external_temp) < 0.05 }}
+        sequence:
+          - stop: "No significant or valid external temperature change."
+
+  # --- Clamp sanity range 15–35 °C ---
+  - choose:
+      - conditions: >
+          {{ external_temp < 15 or external_temp > 35 }}
+        sequence:
+          - service: system_log.write
+            data:
+              level: warning
+              message: "External temperature {{ external_temp }} °C out of safe range (15–35) — ignoring update."
+          - stop: "External temperature outside safe range."
+
+  # --- Debug log ---
   - service: system_log.write
     data:
       level: info
       message: >
-        "TRV Schedule check → mode: {{ active_mode }}, target: {{ target_temp }},
-        external_temp: {{ external_temp }}, time: {{ now().strftime('%H:%M') }}"
+        "TRV check → mode: {{ active_mode }}, target: {{ target_temp }}, external: {{ external_temp }}, time: {{ now().strftime('%H:%M') }}"
 
-  # --- Handle unavailable or invalid external sensor (switch TRV to internal) ---
+  # --- Skip if TRV unavailable ---
+  - choose:
+      - conditions: >
+          {{ states[aqara_trv] in ['unavailable','unknown','none'] }}
+        sequence:
+          - service: system_log.write
+            data:
+              level: error
+              message: "TRV unavailable — skipping actions."
+          - stop: "TRV unavailable."
+
+  # --- External sensor unavailable ---
   - choose:
       - conditions: >
           {{ external_temp == 'none' or not (external_temp is number) }}
@@ -170,53 +231,74 @@ action:
           - service: system_log.write
             data:
               level: error
-              message: "External temperature sensor unavailable – switching TRV to internal sensor"
-              logger: Aqara TRV
-          - stop: External temperature sensor unavailable
+              message: "External temperature sensor unavailable — switched TRV to internal."
+          - stop: "External sensor unavailable."
 
-  # --- External sensor available (switch TRV to external and update internal value) ---
-  - service: select.select_option
-    target:
-      entity_id: !input aqara_trv_select_entity
-    data:
-      option: external
-
-  - service: number.set_value
-    target:
-      entity_id: !input aqara_trv_number_entity
-    data:
-      value: "{{ external_temp | float }}"
-
-  # --- Determine if we need to heat or turn off based on hysteresis ---
+  # --- External sensor available, ensure TRV external mode ---
   - choose:
-      # Stop heating if measured >= target - 0.2
+      - conditions: >
+          {{ states[aqara_trv_select_entity].state != 'external' }}
+        sequence:
+          - service: select.select_option
+            target:
+              entity_id: !input aqara_trv_select_entity
+            data:
+              option: external
+
+  # --- Update TRV temperature only if significant change (≥0.1 °C) ---
+  - choose:
+      - conditions: >
+          {{ abs((states[aqara_trv_number_entity].state | float(999)) - external_temp) >= 0.1 }}
+        sequence:
+          - service: number.set_value
+            target:
+              entity_id: !input aqara_trv_number_entity
+            data:
+              value: "{{ external_temp | float }}"
+
+  # --- Heating logic with configurable hysteresis ---
+  - choose:
+      # Stop heating (>= target − stop_margin)
       - conditions:
           - condition: template
             value_template: >
-              {{ external_temp is number and external_temp >= (target_temp - 0.2) }}
+              {{ external_temp is number and external_temp >= (target_temp - stop_margin) }}
         sequence:
-          - service: climate.set_hvac_mode
-            target:
-              entity_id: "{{ aqara_trv }}"
-            data:
-              hvac_mode: "off"
+          - choose:
+              - conditions: >
+                  {{ states[aqara_trv].state != 'off' }}
+                sequence:
+                  - service: climate.set_hvac_mode
+                    target: { entity_id: "{{ aqara_trv }}" }
+                    data: { hvac_mode: "off" }
+                  - service: system_log.write
+                    data:
+                      level: info
+                      message: "Heating OFF (temp ≥ target − {{ stop_margin }})."
 
-      # Start heating if measured <= target - 0.5
+      # Start heating (≤ target − start_margin)
       - conditions:
           - condition: template
             value_template: >
-              {{ external_temp is number and external_temp <= (target_temp - 0.5) }}
+              {{ external_temp is number and external_temp <= (target_temp - start_margin) }}
         sequence:
-          - service: climate.set_hvac_mode
-            target:
-              entity_id: "{{ aqara_trv }}"
-            data:
-              hvac_mode: "heat"
-          - service: climate.set_temperature
-            target:
-              entity_id: "{{ aqara_trv }}"
-            data:
-              temperature: "{{ target_temp | float }}"
+          - choose:
+              - conditions: >
+                  {{ states[aqara_trv].state != 'heat' }}
+                sequence:
+                  - service: climate.set_hvac_mode
+                    target: { entity_id: "{{ aqara_trv }}" }
+                    data: { hvac_mode: "heat" }
+                  - service: system_log.write
+                    data:
+                      level: info
+                      message: "Heating ON (temp ≤ target − {{ start_margin }})."
+          - choose:
+              - conditions: >
+                  {{ (state_attr(aqara_trv, 'temperature') | float(0)) != target_temp }}
+                sequence:
+                  - service: climate.set_temperature
+                    target: { entity_id: "{{ aqara_trv }}" }
+                    data: { temperature: "{{ target_temp | float }}" }
 
-  # --- If no condition matched, do nothing (stable zone) ---
   - stop: Stable temperature zone — no action required.

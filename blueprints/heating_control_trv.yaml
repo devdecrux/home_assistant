@@ -10,8 +10,6 @@ blueprint:
       - Uses TRV modes: heat/off only
 
   domain: automation
-  mode: restart
-  max_exceeded: silent
 
   input:
     aqara_trv:
@@ -68,6 +66,9 @@ blueprint:
 trigger:
   - platform: state
     entity_id: !input external_sensor
+
+mode: restart
+max_exceeded: silent
 
 variables:
   aqara_trv: !input aqara_trv

@@ -1,5 +1,5 @@
 blueprint:
-  name: Aqara TRV – External Sensor (Compact Comfort & Eco Schedule, v10.1 BETA)
+  name: Aqara TRV – External Sensor (Compact Comfort & Eco Schedule, v10.2 BETA)
   description: >
     Controls an Aqara TRV using an external temperature sensor with comfort and eco modes,
     based on Home Assistant Schedule helpers.
@@ -208,7 +208,7 @@ action:
 
   - choose:
       - conditions: >
-          {{ (not is_schedule_trigger) and (abs((states[aqara_trv_number_entity].state | float(999)) - external_temp) < 0.05) }}
+          {{ (not is_schedule_trigger) and (((states[aqara_trv_number_entity].state | float(999)) - external_temp) | abs < 0.05) }}
         sequence:
           - stop: "No significant external temperature change (Δ < 0.05 °C)."
 
@@ -251,7 +251,7 @@ action:
 
   - choose:
       - conditions: >
-          {{ abs((states[aqara_trv_number_entity].state | float(999)) - external_temp) >= 0.1 }}
+          {{ (((states[aqara_trv_number_entity].state | float(999)) - external_temp) | abs) >= 0.1 }}
         sequence:
           - service: number.set_value
             target:

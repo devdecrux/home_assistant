@@ -4,7 +4,7 @@ blueprint:
     Controls an Aqara TRV E1 using an external Aqara temperature sensor.
     Features:
       - Updates TRV internal temperature based on external sensor (same logic as pavax blueprint)
-      - Fallback to internal TRV temperature if external unavailable
+      - Automatic fallback to TRV internal sensor when external unavailable
       - Comfort/Eco temperature modes based on weekly schedules
       - Hysteresis heating logic (stop at target−0.2°C, start at target−0.5°C)
       - Uses TRV modes: heat/off only
@@ -21,14 +21,6 @@ blueprint:
     external_sensor:
       name: External Temperature Sensor
       description: Aqara temperature & humidity sensor used for external reading.
-      selector:
-        entity:
-          domain: sensor
-          device_class: temperature
-
-    internal_trv_temperature:
-      name: TRV Internal Temperature Sensor
-      description: The internal temperature sensor entity from the TRV (used as fallback).
       selector:
         entity:
           domain: sensor
@@ -80,7 +72,6 @@ trigger:
 variables:
   aqara_trv: !input aqara_trv
   external_sensor: !input external_sensor
-  internal_trv_temperature: !input internal_trv_temperature
   comfort_temperature: !input comfort_temperature
   eco_temperature: !input eco_temperature
   schedules: !input schedules
@@ -96,10 +87,10 @@ variables:
       none
     {% endif %}
 
-  internal_temp: >
-    {% set val = states(internal_trv_temperature) %}
-    {% if val not in ['unavailable','unknown','none','undefined',''] %}
-      {{ val | float }}
+  trv_internal_temp: >
+    {% set val = state_attr(aqara_trv, 'local_temperature') %}
+    {% if val is number %}
+      {{ val }}
     {% else %}
       none
     {% endif %}
@@ -137,8 +128,8 @@ variables:
   measured_temp: >
     {% if external_temp != 'none' and external_temp is number %}
       {{ external_temp }}
-    {% elif internal_temp is number %}
-      {{ internal_temp }}
+    {% elif trv_internal_temp is number %}
+      {{ trv_internal_temp }}
     {% else %}
       none
     {% endif %}
@@ -146,7 +137,7 @@ variables:
 condition: [ ]
 
 action:
-  # --- Update TRV internal temperature same way as in the reference blueprint ---
+  # --- Update TRV internal temperature using the same method as in the reference blueprint ---
   - choose:
       - conditions: "{{ external_temp is number }}"
         sequence:

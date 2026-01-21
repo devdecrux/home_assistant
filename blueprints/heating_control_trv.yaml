@@ -264,6 +264,17 @@ action:
               value: "{{ external_temp | float }}"
 
   - choose:
+      - conditions: >
+          {{ (state_attr(aqara_trv, 'friendly_name') | default('')) | length > 0 }}
+        sequence:
+          - service: mqtt.publish
+            data:
+              topic: >
+                zigbee2mqtt/{{ state_attr(aqara_trv, 'friendly_name') }}/set
+              payload: >
+                {{ {'external_temperature_input': (external_temp | float)} | tojson }}
+
+  - choose:
       - conditions:
           - condition: template
             value_template: >

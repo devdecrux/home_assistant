@@ -1,10 +1,9 @@
 blueprint:
   name: Aqara TRV – External Sensor (Compact Comfort & Eco Schedule, v10.3 BETA)
   description: >
-    Controls an Aqara TRV using an external temperature sensor with comfort and eco modes,
-    based on Home Assistant Schedule helpers.
+    Controls an Aqara TRV using an external temperature sensor with comfort and eco modes, based on Home Assistant Schedule helpers.
 
-    🧩 Features:
+    ✅ Features:
     - External sensor temperature control
     - Internal TRV fallback when sensor unavailable
     - Radiator heat compensation (offset)
@@ -13,7 +12,6 @@ blueprint:
     - Cross-midnight handled by HA Schedule entities
     - Smart logging, idempotent updates, and startup sync
     - TRV modes: heat / off only
-
   domain: automation
 
 input:
@@ -40,7 +38,7 @@ input:
 
   aqara_trv_external_temperature_input_entity:
     name: TRV external_temperature_input (Z2M number)
-    description: Number entity that maps to Zigbee2MQTT "external_temperature_input" for this TRV.
+    description: Zigbee2MQTT number entity that maps to "external_temperature_input" for this TRV.
     selector:
       entity:
         domain: number

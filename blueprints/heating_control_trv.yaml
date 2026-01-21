@@ -16,113 +16,108 @@ blueprint:
 
   domain: automation
 
-input:
-  aqara_trv:
-    name: Aqara TRV
-    description: The TRV climate entity to control.
-    selector:
-      entity:
-        domain: climate
+  input:
+    aqara_trv:
+      name: Aqara TRV
+      description: The TRV climate entity to control.
+      selector:
+        entity:
+          domain: climate
 
-  aqara_trv_select_entity:
-    name: TRV Sensor Mode Selector
-    description: Select entity for TRV sensor source (internal / external).
-    selector:
-      entity:
-        domain: select
+    aqara_trv_select_entity:
+      name: TRV Sensor Mode Selector
+      description: Select entity for TRV sensor source (internal / external).
+      selector:
+        entity:
+          domain: select
 
-  aqara_trv_number_entity:
-    name: TRV External Temperature Number
-    description: Number entity used to update the TRV’s internal value with the external reading.
-    selector:
-      entity:
-        domain: number
+    aqara_trv_number_entity:
+      name: TRV External Temperature Number
+      description: Number entity used to update the TRV’s internal value with the external reading.
+      selector:
+        entity:
+          domain: number
 
-  aqara_trv_external_temperature_input_entity:
-    name: TRV external_temperature_input (Z2M number)
-    description: Number entity that maps to Zigbee2MQTT "external_temperature_input" for this TRV.
-    selector:
-      entity:
-        domain: number
+    external_sensor:
+      name: External Temperature Sensor
+      description: Aqara temperature & humidity sensor used as external reference.
+      selector:
+        entity:
+          domain: sensor
+          device_class: temperature
 
-  external_sensor:
-    name: External Temperature Sensor
-    description: Aqara temperature & humidity sensor used as external reference.
-    selector:
-      entity:
-        domain: sensor
-        device_class: temperature
+    comfort_schedules:
+      name: Comfort Schedules
+      description: >
+        Select one or more Home Assistant Schedule helpers defining Comfort periods.
+        When any selected schedule is ON, Comfort mode becomes active.
+        These helpers automatically handle midnight rollovers.
+      selector:
+        entity:
+          domain: schedule
+          multiple: true
 
-  comfort_schedules:
-    name: Comfort Schedules
-    description: >
-      Select one or more Home Assistant Schedule helpers defining Comfort periods.
-      When any selected schedule is ON, Comfort mode becomes active.
-      These helpers automatically handle midnight rollovers.
-    selector:
-      entity:
-        domain: schedule
-        multiple: true
+    eco_schedules:
+      name: Eco Schedules (optional)
+      description: >
+        Optionally select one or more Home Assistant Schedule helpers defining Eco periods.
+        If no Comfort schedule is ON and any Eco schedule is ON, Eco mode becomes active.
+        If none are ON, the system defaults to Eco.
+      default: [ ]
+      selector:
+        entity:
+          domain: schedule
+          multiple: true
 
-  eco_schedules:
-    name: Eco Schedules (optional)
-    description: >
-      Optionally select one or more Home Assistant Schedule helpers defining Eco periods.
-      If no Comfort schedule is ON and any Eco schedule is ON, Eco mode becomes active.
-      If none are ON, the system defaults to Eco.
-    default: [ ]
-    selector:
-      entity:
-        domain: schedule
-        multiple: true
+    comfort_temperature:
+      name: Comfort Temperature
+      description: Desired temperature during Comfort periods (15–30 °C, decimals allowed).
+      selector:
+        number:
+          min: 15
+          max: 30
+          step: 0.5
+          mode: box
 
-  comfort_temperature:
-    name: Comfort Temperature
-    description: Desired temperature during Comfort periods (15–30 °C, decimals allowed).
-    selector:
-      number:
-        min: 15
-        max: 30
-        step: 0.5
-        mode: box
+    eco_temperature:
+      name: Eco Temperature
+      description: Desired temperature during Eco periods (15–30 °C, decimals allowed).
+      selector:
+        number:
+          min: 15
+          max: 30
+          step: 0.5
+          mode: box
 
-  eco_temperature:
-    name: Eco Temperature
-    description: Desired temperature during Eco periods (15–30 °C, decimals allowed).
-    selector:
-      number:
-        min: 15
-        max: 30
-        step: 0.5
-        mode: box
+    stop_margin:
+      name: Stop Margin (Heating Off Threshold)
+      description: >
+        Defines how close the room temperature must get to the target
+        before the radiator valve turns **off**.
+        Example: if target = 24 °C and Stop Margin = 0.2 °C,
+        heating stops at **23.8 °C or higher** to prevent overheating from inertia.
+      selector:
+        number:
+          min: 0.1
+          max: 1.0
+          step: 0.1
+          mode: box
+      default: 0.2
 
-  stop_margin:
-    name: Stop Margin (Heating Off Threshold)
-    description: >
-      Defines how close the room temperature must get to the target before the radiator valve turns **off**.
-      Example: if target = 24 °C and Stop Margin = 0.2 °C, heating stops at **23.8 °C or higher**
-      to prevent overheating from inertia.
-    default: 0.2
-    selector:
-      number:
-        min: 0.1
-        max: 1.0
-        step: 0.1
-        mode: box
-
-  start_margin:
-    name: Restart Margin (Heating On Threshold)
-    description: >
-      Defines how much the room temperature must drop **below target** before the radiator valve turns **on** again.
-      Example: if target = 24 °C and Restart Margin = 0.5 °C, heating starts at **23.5 °C or lower**
-      to reduce frequent cycling.
-    default: 0.5
-    selector:
-      number:
-        min: 0.1
-        max: 1.0
-        step: 0.1
-        mode: box
+    start_margin:
+      name: Restart Margin (Heating On Threshold)
+      description: >
+        Defines how much the room temperature must drop **below target**
+        before the radiator valve turns **on** again.
+        Example: if target = 24 °C and Restart Margin = 0.5 °C,
+        heating starts at **23.5 °C or lower** to reduce frequent cycling.
+      selector:
+        number:
+          min: 0.1
+          max: 1.0
+          step: 0.1
+          mode: box
+      default: 0.5
 
 mode: restart
 max_exceeded: silent
@@ -145,7 +140,6 @@ variables:
   aqara_trv: !input aqara_trv
   aqara_trv_select_entity: !input aqara_trv_select_entity
   aqara_trv_number_entity: !input aqara_trv_number_entity
-  aqara_trv_external_temperature_input_entity: !input aqara_trv_external_temperature_input_entity
   external_sensor: !input external_sensor
   comfort_schedules: !input comfort_schedules
   eco_schedules: !input eco_schedules
@@ -266,16 +260,6 @@ action:
           - service: number.set_value
             target:
               entity_id: !input aqara_trv_number_entity
-            data:
-              value: "{{ external_temp | float }}"
-
-  - choose:
-      - conditions: >
-          {{ (((states[aqara_trv_external_temperature_input_entity].state | float(999)) - external_temp) | abs) >= 0.1 }}
-        sequence:
-          - service: number.set_value
-            target:
-              entity_id: !input aqara_trv_external_temperature_input_entity
             data:
               value: "{{ external_temp | float }}"
 
